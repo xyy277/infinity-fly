@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>宇宙飞船探索者 - 优化版</title>
+    <title>宇宙飞船探索者</title>
     <style>
         body {
             margin: 0;
@@ -41,6 +41,19 @@
             border-radius: 5px;
             pointer-events: none;
         }
+        .mobileControls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 10;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+            display: none;
+        }
         h1 {
             font-size: 18px;
             margin: 0 0 10px 0;
@@ -64,15 +77,20 @@
     
     <div class="ui-container">
         <h1>宇宙飞船探索者</h1>
-        <div>速度: <span id="speedDisplay">1.0</span> 光年/秒</div>
+        <div>Y轴速度: <span id="YspeedDisplay">1.0</span> 光年/秒</div>
+        <div>X轴速度: <span id="XspeedDisplay">0.0</span> 光年/秒</div>
         <div>已飞行: <span id="distanceDisplay">0</span> 光年</div>
         <div>区域: <span id="regionDisplay">太阳系</span></div>
         <div>对象数: <span id="objectCount">0</span></div>
     </div>
     
-    <div class="controls">
+    <div class="controls" id="controls">
         <div>方向控制: WASD 或 箭头键</div>
         <div>速度控制: +/- 键</div>
+    </div>
+    <div class="mobileControls" id="mobileControls">
+        <div>方向控制: 点击屏幕</div>
+        <div>速度控制: 点击累加</div>
     </div>
 
     <script>
@@ -93,7 +111,8 @@
             ship: {
                 x: 0, // 宇宙坐标
                 y: 0,
-                speed: 1.0,
+                Xspeed: 0,
+                Yspeed: 1.0,
                 direction: { x: 0, y: 0 },
                 size: 20
             },
@@ -257,84 +276,137 @@
         function init() {
             // 事件监听
             window.addEventListener('keydown', handleKeyDown);
-            // window.addEventListener('keyup', handleKeyUp);
             window.addEventListener('resize', handleResize);
-            
+
+            handleKeyDown({key:'ArrowUp'});
+
+            // 添加触摸事件监听
+            if ('ontouchstart' in window) {
+                window.addEventListener('touchstart', handleTouchStart, { passive: false });
+                window.addEventListener('touchmove', handleTouchMove, { passive: false });
+                window.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+                // 显示触摸控制提示
+                document.getElementById('mobileControls').style.display = 'block';
+                document.getElementById('controls').style.display = 'none';
+            }
+
             // 初始加载对象
             loadVisibleObjects();
-            
+
             // 隐藏加载提示
             setTimeout(() => {
                 state.loading = false;
                 document.querySelector('.loading').style.display = 'none';
             }, 1000);
-            
+
             // 开始游戏循环
             requestAnimationFrame(gameLoop);
         }
-        
+
         // 处理按键按下
         function handleKeyDown(e) {
-            const speedChange = 0.05;
-            
-            switch(e.key) {
+            const speedChange = 0.1;
+
+            switch (e.key) {
                 case 'ArrowUp':
                 case 'w':
                 case 'W':
-                    state.ship.direction.y -= speedChange;
+                    state.ship.direction.y -= state.ship.Yspeed;
                     break;
                 case 'ArrowDown':
                 case 's':
                 case 'S':
-                    state.ship.direction.y += speedChange;
+                    state.ship.direction.y += state.ship.Yspeed;
                     break;
                 case 'ArrowLeft':
                 case 'a':
                 case 'A':
-                    state.ship.direction.x -= speedChange;
+                    state.ship.direction.x -= state.ship.Xspeed;
                     break;
                 case 'ArrowRight':
                 case 'd':
                 case 'D':
-                    state.ship.direction.x += speedChange;
+                    state.ship.direction.x += state.ship.Xspeed;
                     break;
                 case '+':
                 case '=':
-                    state.ship.speed = Math.min(5, state.ship.speed + 0.1);
+                    state.ship.Yspeed = Math.min(5, state.ship.Yspeed + 0.1);
                     updateSpeedDisplay();
                     break;
                 case '-':
                 case '_':
-                    state.ship.speed = Math.max(0.1, state.ship.speed - 0.1);
+                    state.ship.Yspeed = Math.max(0.1, state.ship.Yspeed - 0.1);
                     updateSpeedDisplay();
                     break;
             }
-            
+
             // 确保方向值不会过大
             state.ship.direction.x = Math.max(-1, Math.min(1, state.ship.direction.x));
             state.ship.direction.y = Math.max(-1, Math.min(1, state.ship.direction.y));
         }
-        
-        // 处理按键释放
-        function handleKeyUp(e) {
-            switch(e.key) {
-                case 'ArrowUp':
-                case 'w':
-                case 'W':
-                case 'ArrowDown':
-                case 's':
-                case 'S':
-                    state.ship.direction.y = 0;
-                    break;
-                case 'ArrowLeft':
-                case 'a':
-                case 'A':
-                case 'ArrowRight':
-                case 'd':
-                case 'D':
-                    state.ship.direction.x = 0;
-                    break;
+
+        // 处理触摸开始事件
+        function handleTouchStart(e) {
+            if (e.touches.length !== 1) return; // 只处理单指
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            
+            // 计算触摸点相对于屏幕中心的方向
+            const deltaX = touch.clientX - centerX;
+            const deltaY = touch.clientY - centerY;
+            
+            // 确定方向（上下左右）
+            const absX = Math.abs(deltaX);
+            const absY = Math.abs(deltaY);
+            let speed = 0;
+            // 判断主要方向并增加速度
+            if (absX > absY) {
+                // 水平方向
+                if (deltaX > 0) {
+                    speed = 0.1;
+                    state.ship.direction.x += speed; // 右
+                } else {
+                    speed = -0.1;
+                    state.ship.direction.x -= speed; // 左
+                }
+                // 速度增量
+                state.ship.Xspeed += speed;
+            } else {
+                // 垂直方向
+                if (deltaY > 0) {
+                    speed = -0.1;
+                    state.ship.direction.y += speed; // 下
+                } else {
+                    speed = 0.1;
+                    state.ship.direction.y -= speed; // 上
+                }
+                // 速度增量
+                state.ship.Yspeed += speed;
             }
+
+            
+            // 确保方向值不会过大
+            state.ship.direction.x = Math.max(-1, Math.min(1, state.ship.direction.x));
+            state.ship.direction.y = Math.max(-1, Math.min(1, state.ship.direction.y));
+
+            updateSpeedDisplay();
+            updateDistanceDisplay();
+        }
+
+        // 处理触摸移动事件
+        function handleTouchMove(e) {
+            // 不需要处理移动事件，因为只需要点击一次
+            e.preventDefault();
+        }
+
+        // 处理触摸结束事件
+        function handleTouchEnd(e) {
+            // 不需要重置方向，保持当前速度
+            e.preventDefault();
         }
         
         // 处理窗口大小变化
@@ -345,12 +417,13 @@
         
         // 更新速度显示
         function updateSpeedDisplay() {
-            document.getElementById('speedDisplay').textContent = state.ship.speed.toFixed(1);
+            document.getElementById('YspeedDisplay').textContent = state.ship.Yspeed.toFixed(1);
+            document.getElementById('XspeedDisplay').textContent = state.ship.Xspeed.toFixed(1);
         }
         
         // 更新距离显示
         function updateDistanceDisplay() {
-            document.getElementById('distanceDisplay').textContent = Math.floor(state.distance);
+            document.getElementById('distanceDisplay').textContent = state.distance.toFixed(1);
         }
         
         // 游戏更新逻辑
@@ -362,15 +435,19 @@
             if (deltaTime > 0.1) return; // 避免长时间暂停后的大幅跳跃
             
             // 更新飞船宇宙坐标
-            state.ship.x += state.ship.direction.x * state.ship.speed * 100 * deltaTime;
-            state.ship.y += state.ship.direction.y * state.ship.speed * 100 * deltaTime;
+            state.ship.x += state.ship.direction.x * state.ship.Xspeed * 100 * deltaTime;
+            state.ship.y += state.ship.direction.y * state.ship.Yspeed * 100 * deltaTime;
             
             // 更新相机位置（跟随飞船）
             state.camera.x = state.ship.x - canvas.width / 2;
             state.camera.y = state.ship.y - canvas.height / 2;
             
             // 更新飞行距离
-            state.distance += state.ship.speed * deltaTime;
+            const totalDistance = Math.sqrt(
+                Math.pow(state.ship.x * deltaTime, 2) +
+                Math.pow(state.ship.y * deltaTime, 2)
+            );
+            state.distance = totalDistance;
             updateDistanceDisplay();
             
             // 更新区域
